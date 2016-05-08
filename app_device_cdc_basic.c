@@ -31,8 +31,6 @@
 #include "app_led_usb_status.h"
 #include "app_device_cdc_basic.h"
 #include "usb_config.h"
-#include "queue.h"
-#include "accel.h"
 #include "i2c.h"
 #include "mc24c64.h"
 
@@ -74,16 +72,11 @@ void PutsStringCPtr(char *str)
 
 
 unsigned short gcounter = 0;
-Accel accel_x;
-Accel accel_y;
-unsigned short led_x_timer = 0;
-unsigned short led_y_timer = 0;
 unsigned char debug_buffer[32]; // size needs bigger than queue_buffer
 int debug_buffer_size = 0;
 unsigned char debug_flag = 0;
 unsigned char debug_data = 0;
 unsigned short debug_counter = 0;
-unsigned char calc_accel = 0;
 
 #define T0CNT (65536-375)
 char led_state = 1;
@@ -98,12 +91,8 @@ void interrupt_func(void)
     gcounter++;
     if (gcounter > 8000) {
       gcounter = 0;
-      led_state = !led_state;
-      calc_accel = 1;
       debug_flag = 1;
     }
-    if (led_x_timer > 0) led_x_timer--;
-    if (led_y_timer > 0) led_y_timer--;
   }
 
   if (INTCONbits.RABIF == 1) {
@@ -112,45 +101,6 @@ void interrupt_func(void)
     //PIR2bits.TMR3IF = 0;
     INTCONbits.RABIF = 0;
     debug_counter++;
-    accel_pin_state_changed(&accel_x, PORTBbits.RB5, now);
-    accel_pin_state_changed(&accel_y, PORTBbits.RB7, now);
-
-    // ADXL213
-    // 10k[ohm] の抵抗をつけた場合
-    //   T2 = 10*10**3 / (125*10**6) [s]
-    //      = 0.08 / 10**3 [s] = 0.08[ms]
-    //   1/T2 = 12.5[kHz]
-    //   256 の分解能とすると 12.5 * 256 = 3200[kHz] = 3.2[MHz]
-    //
-    // 42k[ohm] の抵抗をつけた場合
-    //   T2 = 42*10**3 / (125*10**6) [s]
-    //      = 0.336 / 10**3 [s] = 0.336[ms]
-    //   1/T2 = 2.976[kHz]
-    //   256 の分解能とすると 2.976 * 256 = 761.9[kHz] = 0.7[MHz]
-    //
-    // 125k[ohm] の抵抗をつけた場合
-    //   T2 = 125*10**3 / (125*10**6) [s]
-    //      = 1 / 10**3 [s] = 1[ms]
-    //   1/T2 = 1[kHz]
-    //   256 の分解能とすると 1 * 256 = 256[kHz]
-    //
-    // 126k[ohm] の抵抗をつけた場合
-    //   T2 = 126*10**3 / (125*10**6) [s]
-    //      = 1.008 / 10**3 [s] = 1.008[ms]
-    //   1/T2 = 0.992[kHz]
-    //   256 の分解能とすると 1 * 256 = 254[kHz]
-    //
-    // Timer は 48MHz/4 で prescaler 1:4 なので
-    // 1/(48*10**6/4/4) * x = 1/(256*10**3)
-    // x = (48*10**6/4/4) / (256*10**3)
-    //   = 3 * 10**3 / 256
-    //   = 11.719, 約12
-
-    // Timer は 48MHz/4 で prescaler 1:8 なので
-    // 1/(48*10**6/4/8) * x = 1/(256*10**3)
-    // x = (48*10**6/4/8) / (256*10**3)
-    //   = 1.5 * 10**3 / 256
-    //   = 11.719, 約12
   }
 }
 
@@ -242,10 +192,6 @@ void init(void)
   INTCON2bits.RABIP = 1;   // high level interrupt
   IOCBbits.IOCB5 = 1;
   IOCBbits.IOCB7 = 1;
-
-  // accel
-  accel_init(&accel_x);
-  accel_init(&accel_y);
 
   // for i2c
   PORTCbits.RC7 = 1;
