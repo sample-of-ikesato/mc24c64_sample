@@ -33,6 +33,10 @@
 #include "usb_config.h"
 #include "queue.h"
 #include "accel.h"
+#include "i2c.h"
+#include "mc24c64.h"
+
+#define _XTAL_FREQ (48000000)
 
 /** VARIABLES ******************************************************/
 
@@ -77,6 +81,7 @@ unsigned short led_y_timer = 0;
 unsigned char debug_buffer[32]; // size needs bigger than queue_buffer
 int debug_buffer_size = 0;
 unsigned char debug_flag = 0;
+unsigned char debug_data = 0;
 unsigned short debug_counter = 0;
 unsigned char calc_accel = 0;
 
@@ -84,15 +89,18 @@ unsigned char calc_accel = 0;
 char led_state = 1;
 void interrupt_func(void)
 {
+  // I2C interrupt handler
+  i2c_interrupt();
+
   if (INTCONbits.TMR0IF == 1) {
     TMR0 = T0CNT;
     INTCONbits.TMR0IF = 0;
     gcounter++;
-    if (gcounter > 8000/120) {
+    if (gcounter > 8000) {
       gcounter = 0;
       led_state = !led_state;
-      debug_flag = 1;
       calc_accel = 1;
+      debug_flag = 1;
     }
     if (led_x_timer > 0) led_x_timer--;
     if (led_y_timer > 0) led_y_timer--;
@@ -149,7 +157,7 @@ void interrupt_func(void)
 void init(void)
 {
   TRISA = 0;
-  TRISB = 0b10100000; // input RB5,RB7
+  TRISB = 0b11110000; // input RB4(SDA), RB6(SCL), RB5,RB7
   TRISC = 0;
   PORTA = 0;
   PORTB = 0;
@@ -157,7 +165,7 @@ void init(void)
   ANSELH = ANSEL = 0;
 
   INTCON2bits.RABPU = 0; // enable pull-up
-  WPUB7 = WPUB5 = 1;     // pull up pins
+  WPUB = 0b11110000;     // pull up pins: RB4(SDA), RB6(SCL), RB5, RB7
 
   // timer
   // USB Bootloader では 48MHz で動作
@@ -238,6 +246,40 @@ void init(void)
   // accel
   accel_init(&accel_x);
   accel_init(&accel_y);
+
+  // for i2c
+  PORTCbits.RC7 = 1;
+  mc24c64_init();
+
+  // write
+  i2c_start(0x50, 0);
+  i2c_send(0x00); // address high
+  i2c_send(0x00); // address low
+  i2c_send(0x12); // data
+  i2c_stop();
+  __delay_ms(10);
+  i2c_start(0x50, 0);
+  i2c_send(0x00); // address high
+  i2c_send(0x01); // address low
+  i2c_send(0x34); // data
+  i2c_stop();
+  __delay_ms(10);
+
+  {
+    i2c_start(0x50, 0);
+    i2c_send(0x00); // address high
+    i2c_send(0x00); // address low
+    //i2c_rstart(0x50, 0);
+    i2c_start(0x50, 1);
+    unsigned char data[2];
+    data[0]  = i2c_receive(ACK);
+    data[1]  = i2c_receive(NOACK);
+    i2c_stop();
+    if (data[0] == 0x12 && data[1] == 0x34)
+      PORTCbits.RC1 = 1;
+    debug_flag = 1;
+    debug_data = data;
+  }
 }
 
 /*********************************************************************
@@ -317,29 +359,11 @@ void APP_DeviceCDCBasicDemoTasks()
 
       if (debug_flag) {
         debug_flag = 0;
-        writeBuffer[0] = 4;
-        writeBuffer[1] = 9;
-        *((unsigned short *)(&writeBuffer[2])) = accel_x.on;
-        *((unsigned short *)(&writeBuffer[4])) = accel_x.off;
-        *((unsigned short *)(&writeBuffer[6])) = accel_y.on;
-        *((unsigned short *)(&writeBuffer[8])) = accel_y.off;
-        writeBuffer[10] = debug_counter;
+        writeBuffer[0] = 9;
+        writeBuffer[1] = 1;
+        writeBuffer[2] = debug_data;
         putUSBUSART(writeBuffer, writeBuffer[1]+2);
       }
     }
     CDCTxService();
-
-    if (calc_accel) {
-      calc_accel = 0;
-      accel_apply_filter(&accel_x);
-      accel_apply_filter(&accel_y);
-      #define THRESHOLD 0.05
-      if (accel_x.value < (unsigned short)(4585*(1.0-THRESHOLD)) || accel_x.value > (unsigned short)(4585*(1.0+THRESHOLD)))
-        led_x_timer = (unsigned short)(0.5*8000); // 0.5[s]
-      if (accel_y.value < (unsigned short)(4585*(1.0-THRESHOLD)) || accel_y.value > (unsigned short)(4585*(1.0+THRESHOLD)))
-        led_y_timer = (unsigned short)(0.5*8000); // 0.5[s]
-
-      PORTCbits.RC1 = (led_x_timer > 0 ? 1 : 0);
-      PORTCbits.RC7 = (led_y_timer > 0 ? 1 : 0);
-    }
 }

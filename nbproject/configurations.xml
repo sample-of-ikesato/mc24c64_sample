@@ -23,6 +23,8 @@
       <itemPath>leds.c</itemPath>
       <itemPath>queue.c</itemPath>
       <itemPath>accel.c</itemPath>
+      <itemPath>i2c.c</itemPath>
+      <itemPath>mc24c64.c</itemPath>
     </logicalFolder>
     <logicalFolder name="ExternalFiles"
                    displayName="Important Files"
