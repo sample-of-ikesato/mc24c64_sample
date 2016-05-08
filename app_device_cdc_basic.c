@@ -77,6 +77,7 @@ int debug_buffer_size = 0;
 unsigned char debug_flag = 0;
 unsigned char debug_data = 0;
 unsigned short debug_counter = 0;
+unsigned char debug_flag2 = 0;
 
 #define T0CNT (65536-375)
 char led_state = 1;
@@ -91,7 +92,6 @@ void interrupt_func(void)
     gcounter++;
     if (gcounter > 8000) {
       gcounter = 0;
-      debug_flag = 1;
     }
   }
 
@@ -198,34 +198,34 @@ void init(void)
   mc24c64_init();
 
   // write
-  i2c_start(0x50, 0);
-  i2c_send(0x00); // address high
-  i2c_send(0x00); // address low
-  i2c_send(0x12); // data
-  i2c_stop();
-  __delay_ms(10);
-  i2c_start(0x50, 0);
-  i2c_send(0x00); // address high
-  i2c_send(0x01); // address low
-  i2c_send(0x34); // data
-  i2c_stop();
-  __delay_ms(10);
-
-  {
-    i2c_start(0x50, 0);
-    i2c_send(0x00); // address high
-    i2c_send(0x00); // address low
-    //i2c_rstart(0x50, 0);
-    i2c_start(0x50, 1);
-    unsigned char data[2];
-    data[0]  = i2c_receive(ACK);
-    data[1]  = i2c_receive(NOACK);
-    i2c_stop();
-    if (data[0] == 0x12 && data[1] == 0x34)
-      PORTCbits.RC1 = 1;
-    debug_flag = 1;
-    debug_data = data;
-  }
+//  i2c_start(0x50, 0);
+//  i2c_send(0x00); // address high
+//  i2c_send(0x00); // address low
+//  i2c_send(0x12); // data
+//  i2c_stop();
+//  __delay_ms(10);
+//  i2c_start(0x50, 0);
+//  i2c_send(0x00); // address high
+//  i2c_send(0x01); // address low
+//  i2c_send(0x34); // data
+//  i2c_stop();
+//  __delay_ms(10);
+//
+//  {
+//    i2c_start(0x50, 0);
+//    i2c_send(0x00); // address high
+//    i2c_send(0x00); // address low
+//    //i2c_rstart(0x50, 0);
+//    i2c_start(0x50, 1);
+//    unsigned char data[2];
+//    data[0]  = i2c_receive(ACK);
+//    data[1]  = i2c_receive(NOACK);
+//    i2c_stop();
+//    if (data[0] == 0x12 && data[1] == 0x34)
+//      PORTCbits.RC1 = 1;
+//    debug_flag = 1;
+//    debug_data = data;
+//  }
 }
 
 /*********************************************************************
@@ -303,13 +303,71 @@ void APP_DeviceCDCBasicDemoTasks()
       uint8_t numBytesRead;
       numBytesRead = getsUSBUSART(readBuffer, sizeof(readBuffer));
 
-      if (debug_flag) {
-        debug_flag = 0;
-        writeBuffer[0] = 9;
-        writeBuffer[1] = 1;
-        writeBuffer[2] = debug_data;
-        putUSBUSART(writeBuffer, writeBuffer[1]+2);
+      if (numBytesRead > 0) {
+        switch(readBuffer[0]) {
+        case 0x10:
+          {
+            unsigned char size = readBuffer[1];
+            debug_flag2 = !debug_flag2;
+            PORTCbits.RC1 = debug_flag2;
+            writeBuffer[0] = 0x90;
+            writeBuffer[1] = 4;
+            writeBuffer[2] = numBytesRead;
+            writeBuffer[3] = readBuffer[1];
+            writeBuffer[4] = readBuffer[2];
+            writeBuffer[5] = readBuffer[3];
+            writeBuffer[1] = 4+size;
+            for (unsigned char i = 0; i<size; i++) {
+              writeBuffer[i+6] = readBuffer[4 + i];
+            }
+            if (WaitToReadySerial())
+              putUSBUSART(writeBuffer, writeBuffer[1]+2);
+            WaitToReadySerial();
+          }
+          {
+            unsigned char size = readBuffer[1];
+            i2c_start(0x50, 0);
+            // address in big-endian format
+            i2c_send(readBuffer[3]); // address MSB
+            i2c_send(readBuffer[2]); // address LSB
+            for (unsigned char i = 0; i<size; i++) {
+              i2c_send(readBuffer[4 + i]);
+            }
+            i2c_stop();
+            __delay_ms(10);
+          }
+          break;
+        case 0x11:
+          {
+            unsigned char size = readBuffer[1];
+            unsigned char data;
+            unsigned char i;
+            i2c_start(0x50, 0);
+            // address in big-endian format
+            i2c_send(readBuffer[3]); // address MSB
+            i2c_send(readBuffer[2]); // address LSB
+            i2c_start(0x50, 1);
+            for (i=0; i<size-1; i++) {
+              writeBuffer[i+2] = i2c_receive(ACK);
+            }
+            writeBuffer[i+2] = i2c_receive(NOACK);
+            i2c_stop();
+            __delay_ms(10);
+            writeBuffer[0] = 0x12;
+            writeBuffer[1] = size;
+            putUSBUSART(writeBuffer, writeBuffer[1]+2);
+          }
+          break;
+        }
       }
+
+      //if (debug_flag) {
+      //  debug_flag = 0;
+      //  writeBuffer[0] = 9;
+      //  writeBuffer[1] = 1;
+      //  writeBuffer[2] = debug_data;
+      //  putUSBUSART(writeBuffer, writeBuffer[1]+2);
+      //}
     }
     CDCTxService();
 }

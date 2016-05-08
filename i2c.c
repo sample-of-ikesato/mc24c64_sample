@@ -72,9 +72,9 @@ void i2c_init_master(void)
 {
     SSPCON1= 0b00101000;   // master mode
     SSPSTAT= 0b00000000;
-    //SSPADD = 0x77;       // normal speed, 100kHz.
-    SSPADD = 0x1D;         // fast mode, 400kHz
-    //SSPADD = 0x1D;       // more fast mode, 1MHz
+    SSPADD = 0x77;       // normal speed, 100kHz.
+    //SSPADD = 0x1D;         // fast mode, 400kHz
+    //SSPADD = 0xB;       // more fast mode, 1MHz
                            // clock=FOSC/((SSPADD + 1)*4)
                            //   100kHz = 48MHz/((SSPADD + 1)*4)
                            //     SSPADD = ((48*1000/4) / 100) - 1
